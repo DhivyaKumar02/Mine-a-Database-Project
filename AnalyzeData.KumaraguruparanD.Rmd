@@ -1,0 +1,351 @@
+---
+output:
+  html_document:
+    keep_md: true
+  pdf_document: default
+---
+
+# Report
+## Subtitle: Practicum II CS5200
+#### Author: Dhivya Kumaraguruparan
+#### Date: Spring 2024
+
+
+```{r label= "dbConnection", eval = T, warning = F, echo=FALSE, message= FALSE}
+# 1. Library
+library(RMySQL)
+library(DBI)
+library(RSQLite)
+library(knitr)
+
+# 2. Settings
+db_user <- 'dhivya'            #  value from the setup
+db_password <- 'Practicum@2024'    #  value from the setup
+db_name <- 'practicum12024'         #  value from the setup
+db_host <- 'db4free.net'       # for db4free.net
+db_port <- 3306
+
+# 3. Connect to remote server database
+con <-  dbConnect(RMySQL::MySQL(), user = db_user, password = db_password,
+                   dbname = db_name, host = db_host, port = db_port)
+
+```
+
+
+## Analytical Query I
+### Top five sales reps with the most sales broken down by year
+
+Based on their overall sales performance, the research determines the top five sales reps for each year. 2020 saw Walison da Silva lead the group, closely followed by Aneeta Kappoorthy and Lynette McRowe. In 2021 and 2022, the pattern persisted, with reliable performers topping the charts. The business can use the success of these top performers as leverage to increase overall sales growth by identifying and rewarding them. Frequent oversight and assistance can boost their output even further and offer insightful information that can be used to raise the performance of the sales force as a whole.
+
+```{sql connection=con, label= "Top five sales reps with the most sales broken down by year sql", eval = T, warning = F, echo=FALSE, message= FALSE}
+SELECT
+    rep_name,
+    SUM(total_amount_sold) AS total_sales,
+    sale_year
+FROM
+    rep_facts
+GROUP BY
+    rep_name, sale_year
+ORDER BY
+    sale_year, total_sales DESC
+
+
+```
+
+
+```{r label= "Top five sales reps with the most sales broken down by year", eval = T, warning = F, echo=FALSE, message= FALSE}
+
+# Check if ggplot2 package is installed, if not, install it
+if (!require("ggplot2", quietly = TRUE)) {
+  install.packages("ggplot2")
+}
+
+# Check if plotly package is installed, if not, install it
+if (!require("plotly", quietly = TRUE)) {
+  install.packages("plotly")
+}
+
+library(ggplot2)
+library(plotly)
+
+# SQL query
+query <- "
+    SELECT
+        rep_name,
+        SUM(total_amount_sold) AS total_sales,
+        sale_year
+    FROM
+        rep_facts
+    GROUP BY
+        rep_name, sale_year
+    ORDER BY
+        sale_year, total_sales;
+"
+
+# Execute the query and store the result in 'result'
+result <- DBI::dbGetQuery(con, query)
+
+# Convert 'sale_year' to factor to maintain the order in the plot
+result$sale_year <- factor(result$sale_year)
+
+# Create an empty list to store the plots
+plot_list <- list()
+
+
+# Loop through unique years and create a plot for each
+for (year in unique(result$sale_year)) {
+  year_data <- subset(result, sale_year == year)
+  
+  # Create a horizontal bar plot using ggplot2
+  p <- ggplot(year_data, aes(x = total_sales, y = reorder(rep_name, total_sales), fill = rep_name, text = paste("Rep: ", rep_name, "<br>Total Sales : $", total_sales))) +
+    geom_bar(stat = "identity") +
+    labs(title = paste("Top 5 Sales Reps in", year), x = "Total Sales ", y = "") +
+    theme(legend.position = "none") +
+    scale_x_continuous(name = "Top 5 Sales Reps", labels = scales::dollar)
+  
+  # Convert ggplot to plotly
+  plot <- ggplotly(p, tooltip = "text")
+  
+  # Check if the plot for the current year already exists in the list
+  if (!(year %in% names(plot_list))) {
+    # If not, add the plot to the list
+    plot_list[[year]] <- plot
+  }
+}
+
+# Print the unique plots
+print(plot_list)
+
+```
+
+## Analytical Query II
+### Total sold per product per quarter
+
+The study provides important insights into the performance of the product throughout the year by revealing the total sales per product for each quarter. For instance, sales of "Zalofen" spiked in 2020's first quarter, but sales of "Bhikatervizem" increased steadily throughout the course of the entire quarter. Businesses can make well-informed decisions about product development, marketing tactics, and inventory management by keeping an eye on these trends. Recognizing the variations in demand every quarter helps businesses make the most use of their resources and take advantage of growth prospects in particular product categories.
+
+
+```{sql connection=con, label= "Total sold per product per quarter sql", eval = T, warning = F, echo=FALSE, message= FALSE}
+SELECT
+    product_name,
+    sale_year,
+    quarter,
+    SUM(total_amount_sold) AS total_sold
+FROM
+    product_facts
+GROUP BY
+    product_name, sale_year, quarter;
+```
+
+
+```{r label= "Total sold per product per quarter", eval = T, warning = F, echo=FALSE, message= FALSE}
+
+# Check if ggplot2 package is installed, if not, install it
+if (!require("ggplot2", quietly = TRUE)) {
+  install.packages("ggplot2")
+}
+
+# Check if plotly package is installed, if not, install it
+if (!require("plotly", quietly = TRUE)) {
+  install.packages("plotly")
+}
+
+library(ggplot2)
+library(plotly)
+
+# Execute the SQL query to retrieve the total sold for each product_name, sale_year, and quarter
+query <- "
+SELECT
+    product_name,
+    sale_year,
+    quarter,
+    SUM(total_amount_sold) AS total_sold
+FROM
+    product_facts
+GROUP BY
+    product_name, sale_year, quarter;
+"
+
+# Execute the query and store the result in query_result
+query_result <- dbGetQuery(con, query)
+
+# Get unique years
+unique_years <- unique(query_result$sale_year)
+
+# Iterate over unique years
+for (year in unique_years) {
+  # Subset data for the current year
+  year_data <- subset(query_result, sale_year == year)
+  
+  # Create ggplot object
+  gg <- ggplot(year_data, aes(x = quarter, y = total_sold, color = product_name, group = product_name)) +
+    geom_line() +
+    labs(title = paste("Total Sold by Quarter for Each Product -", year),
+         x = "Quarter",
+         y = "Total Sold") +
+    theme_minimal() +
+    scale_y_continuous(name = "", labels = scales::dollar)
+  
+  # Convert ggplot to plotly for interactive plot values
+  ggplotly(gg, tooltip = "all") %>%
+    print()
+}
+
+
+```
+
+## Analytical Query III
+### Number of units sold per product per region
+
+Essential information about regional sales trends can be obtained by examining the quantity of units sold of each product in various locations. Businesses can effectively allocate resources and customize marketing tactics to target certain client segments by watching these variables and identifying places with high demand for particular items. For example, "Colophrazen" might sell well in the EMEA region, but "Colophrazen" doesn't do better in the South America area. Companies can improve their distribution networks, inventory control, and product offers to maximize profitability and customer happiness by taking into account these geographical variations.
+
+
+```{sql connection=con, label= "Number of units sold per product per region sql", eval = T, warning = F, echo=FALSE, message= FALSE}
+
+SELECT
+    product_name,
+    territory,
+    SUM(total_units_sold_per_region) AS total_units_sold
+FROM
+    product_facts
+GROUP BY
+    product_name, territory;
+    
+```
+
+
+
+```{r label= "Number of units sold per product per region", eval = T, warning = F, echo=FALSE, message= FALSE}
+
+# Check if ggplot2 package is installed, if not, install it
+if (!require("ggplot2", quietly = TRUE)) {
+  install.packages("ggplot2")
+}
+
+# Check if plotly package is installed, if not, install it
+if (!require("plotly", quietly = TRUE)) {
+  install.packages("plotly")
+}
+
+library(ggplot2)
+library(plotly)
+
+# Execute the SQL query to retrieve the number of units sold per product per region
+query <- "
+SELECT
+    product_name,
+    territory,
+    SUM(total_units_sold_per_region) AS total_units_sold
+FROM
+    product_facts
+GROUP BY
+    product_name, territory;
+"
+
+# Execute the query and store the result in query_result
+query_result <- dbGetQuery(con, query)
+
+# Assuming query_result contains the result of the SQL query
+gg <- ggplot(query_result, aes(x = territory, y = total_units_sold, group = product_name, color = product_name)) +
+  geom_line() +
+  labs(title = "Number of Units Sold per Product per Region",
+       x = "Region",
+       y = "Total Units Sold $") +
+  theme_minimal() +
+  scale_y_continuous(name = " ", labels = scales::dollar)
+
+# Convert ggplot to plotly
+plotly_gg <- ggplotly(gg, tooltip = "y")
+
+# Print the plot
+plotly_gg
+
+
+```
+
+## Analytical Query IV
+### Average sales per sales rep over the years
+
+Examining the mean sales amount per sales agent across time provides significant understanding of individual performance patterns and the efficacy of the sales force as a whole. Businesses can find high-performing sales representatives, spot patterns in sales performance over time, and identify areas for training or improvement by monitoring this indicator. To disseminate best practices throughout the organization, mentorship programs can be informed, for example, by identifying sales representatives who consistently have high average sales. Furthermore, by tracking variations in average sales over time, one may determine how training programs or changes in the market environment affect sales performance, which can help with resource allocation and strategic decision-making. 2020 saw Walison da Silva lead the group, closely followed by Aneeta Kappoorthy and Lynette McRowe. In 2021 and 2022, the pattern persisted, with reliable performers topping the charts.
+
+```{r label= "Average sales per sales rep over the years 1", eval = T, warning = F, echo=FALSE, message= FALSE}
+# Load the knitr package
+library(knitr)
+
+# SQL query
+query <- "
+    SELECT 
+        rep_name,
+        sale_year,
+        SUM(total_amount_sold) AS total_sales,
+        COUNT(*) AS number_of_sales,
+        SUM(total_amount_sold) / COUNT(*) AS average_sales
+    FROM 
+        rep_facts
+    GROUP BY 
+        rep_name, sale_year
+    ORDER BY 
+        rep_name, sale_year;
+"
+
+# Execute the query and store the result in 'result'
+result <- DBI::dbGetQuery(con, query)
+
+# Display the result using the kable function
+kable(result, caption = "Average Sales per Sales Rep Over the Years", align = "c")
+
+```
+
+
+```{r label= "Average sales per sales rep over the years", eval = T, warning = F, echo=FALSE, message= FALSE}
+# Check if ggplot2 package is installed, if not, install it
+if (!require("ggplot2", quietly = TRUE)) {
+  install.packages("ggplot2")
+}
+
+# Check if plotly package is installed, if not, install it
+if (!require("plotly", quietly = TRUE)) {
+  install.packages("plotly")
+}
+
+library(ggplot2)
+library(DBI)
+library(plotly)
+
+result <- DBI::dbGetQuery(con, "
+    SELECT 
+        rep_name,
+        sale_year,
+        SUM(total_amount_sold) AS total_sales,
+        COUNT(*) AS number_of_sales,
+        SUM(total_amount_sold) / COUNT(*) AS average_sales
+    FROM 
+        rep_facts
+    GROUP BY 
+        rep_name, sale_year
+    ORDER BY 
+        rep_name, sale_year;
+")
+
+# Convert sale_year to factor to maintain order on x-axis
+result$sale_year <- factor(result$sale_year)
+str(df)
+
+
+# Convert the ggplot object to a plotly object
+plotly_plot <- ggplotly(ggplot(data = result, aes(x = sale_year, y = average_sales, color = rep_name, group = rep_name)) +
+                          geom_line() +
+                          geom_point() +
+                          labs(title = "Average Sales per Sales Rep Over the Years",
+                               x = "Year",
+                               y = "Average Sales ($)",
+                               color = "Sales Rep") +
+                          theme_minimal())
+
+# Show the interactive plot
+plotly_plot
+
+dbDisconnect(con)
+
+```
+
+
